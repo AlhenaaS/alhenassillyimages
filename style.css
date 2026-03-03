@@ -1,11 +1,13 @@
-/* Inline Image Generation Extension Styles */
+/* Inline Image Generation Extension Styles — v2.0 */
 
-/* Settings Panel */
+/* =========================================
+   SETTINGS PANEL
+   ========================================= */
+
 .iig-settings {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    /* SillyTavern can apply pre-wrap in some panels; avoid showing template indentation. */
     white-space: normal !important;
 }
 
@@ -41,15 +43,32 @@
     color: var(--SmartThemeBodyColor);
 }
 
+.iig-settings h5 {
+    margin: 4px 0 2px;
+    color: var(--SmartThemeBodyColor);
+}
+
 .iig-settings .hint {
     font-size: 0.85em;
     color: var(--SmartThemeQuoteColor);
     margin: 0;
 }
 
+/* =========================================
+   UTILITY
+   ========================================= */
+
 .iig-hidden {
     display: none !important;
 }
+
+@keyframes iig-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* =========================================
+   PROVIDER SECTIONS (Naistera / Nano-Banana)
+   ========================================= */
 
 .iig-naistera-refs {
     display: flex;
@@ -68,19 +87,42 @@
     margin-bottom: 4px;
 }
 
-/* Avatar options section - shown only for nano-banana */
 .iig-avatar-section {
     padding: 10px;
     background: var(--SmartThemeBlurTintColor);
     border-radius: 5px;
     margin-top: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 
 .iig-avatar-section.hidden {
     display: none;
 }
 
-/* Loading Placeholder - adaptive to container */
+/* =========================================
+   BUTTONS IN SETTINGS
+   ========================================= */
+
+.iig-refresh-btn {
+    padding: 5px 10px;
+    cursor: pointer;
+}
+
+.iig-refresh-btn.loading i {
+    animation: iig-spin 1s linear infinite;
+}
+
+.iig-key-toggle {
+    padding: 5px 10px;
+    cursor: pointer;
+}
+
+/* =========================================
+   LOADING PLACEHOLDER
+   ========================================= */
+
 .iig-loading-placeholder {
     display: inline-flex;
     flex-direction: column;
@@ -111,13 +153,26 @@
     margin-top: 10px;
     font-size: 0.9em;
     color: var(--SmartThemeQuoteColor);
+    text-align: center;
 }
 
-@keyframes iig-spin {
-    to { transform: rotate(360deg); }
+/* =========================================
+   ERROR IMAGE
+   ========================================= */
+
+.iig-error-image {
+    display: block;
+    max-width: 300px;
+    min-width: 200px;
+    min-height: 150px;
+    width: 100%;
+    height: auto;
+    border-radius: 8px;
+    margin: 5px 0;
+    border: 2px solid rgba(255, 100, 100, 0.5);
 }
 
-/* Error Wrapper - contains img with preserved data-iig-instruction for DOM search */
+/* Legacy error wrapper — kept for backwards compat */
 .iig-error-wrapper {
     display: inline-block;
     position: relative;
@@ -126,24 +181,9 @@
     border-radius: 8px;
     overflow: hidden;
     border: 2px solid rgba(255, 100, 100, 0.5);
-    transition: border-color 0.2s, transform 0.2s;
 }
 
-.iig-error-wrapper:hover {
-    border-color: rgba(255, 100, 100, 0.8);
-    transform: scale(1.01);
-}
-
-.iig-error-wrapper .iig-error-image {
-    display: block;
-    max-width: 300px;
-    min-width: 200px;
-    min-height: 150px;
-    width: 100%;
-    height: auto;
-}
-
-/* Legacy error placeholder (keeping for backwards compatibility) */
+/* Legacy error placeholder */
 .iig-error-placeholder {
     display: flex;
     flex-direction: column;
@@ -190,27 +230,127 @@
     opacity: 0.8;
 }
 
-/* Generated Image Container */
+/* =========================================
+   GENERATED IMAGE
+   ========================================= */
+
 .iig-generated-image {
     max-width: 100%;
     border-radius: 8px;
     margin: 10px 0;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
-/* Model refresh button */
-.iig-refresh-btn {
-    padding: 5px 10px;
+.iig-generated-image:hover {
+    transform: scale(1.01);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* =========================================
+   LIGHTBOX
+   ========================================= */
+
+.iig-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: iig-lightbox-fadein 0.2s ease;
+}
+
+@keyframes iig-lightbox-fadein {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.iig-lightbox-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
     cursor: pointer;
 }
 
-.iig-refresh-btn.loading i {
-    animation: iig-spin 1s linear infinite;
+.iig-lightbox-content {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 92vw;
+    max-height: 92vh;
+    z-index: 1;
 }
 
-/* API Key visibility toggle */
-.iig-key-toggle {
-    padding: 5px 10px;
+.iig-lightbox-image {
+    max-width: 90vw;
+    max-height: 80vh;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+    /* subtle entry animation */
+    animation: iig-lightbox-img-in 0.25s ease;
+}
+
+@keyframes iig-lightbox-img-in {
+    from { transform: scale(0.92); opacity: 0; }
+    to   { transform: scale(1);    opacity: 1; }
+}
+
+.iig-lightbox-info {
+    margin-top: 12px;
+    max-width: 700px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.85em;
+    line-height: 1.45;
+    padding: 0 20px;
+    /* allow scrolling if prompt is very long */
+    max-height: 10vh;
+    overflow-y: auto;
+}
+
+.iig-lightbox-style {
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.iig-lightbox-prompt {
+    color: rgba(255, 255, 255, 0.7);
+    word-break: break-word;
+}
+
+.iig-lightbox-close {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 18px;
     cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    transition: background 0.15s, transform 0.15s;
+    z-index: 2;
 }
 
-/* Regenerate button in message extra menu - inherits mes_button styling */
+.iig-lightbox-close:hover {
+    background: rgba(255, 80, 80, 0.7);
+    transform: scale(1.1);
+}
+
+/* =========================================
+   REGENERATE BUTTON IN MESSAGE MENU
+   inherits .mes_button styling from ST
+   ========================================= */
+
+/* no extra overrides needed — .mes_button handles it */

@@ -970,9 +970,11 @@ async function parseImageTags(text, options = {}) {
         const fullImgTag = text.substring(imgStart, imgEnd);
         const instructionJson = text.substring(jsonStart, jsonEnd);
         
-        const srcMatch = fullImgTag.match(/src\s*=\s*["']?([^"'\s>]+)/i);
-        const srcValue = srcMatch ? srcMatch[1] : '';
+        // Parse src correctly — handle quoted and unquoted values, including paths with spaces
+        const srcMatch = fullImgTag.match(/src\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+        const srcValue = srcMatch ? (srcMatch[1] ?? srcMatch[2] ?? srcMatch[3] ?? '') : '';
         
+        // Determine if this needs generation
         let needsGeneration = false;
         const hasMarker = srcValue.includes('[IMG:GEN]') || srcValue.includes('[IMG:');
         const hasErrorImage = srcValue.includes('error.svg');

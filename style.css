@@ -1,356 +1,137 @@
-/* Inline Image Generation Extension Styles — v2.0 */
-
 /* =========================================
-   SETTINGS PANEL
+   CONFIRM PLACEHOLDER
    ========================================= */
 
-.iig-settings {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    white-space: normal !important;
-}
-
-.iig-settings * {
-    white-space: normal !important;
-}
-
-.iig-settings .flex-row {
-    display: grid;
-    grid-template-columns: minmax(140px, 180px) 1fr auto;
-    align-items: center;
-    column-gap: 10px;
-    row-gap: 6px;
-}
-
-.iig-settings .flex-row > label {
-    min-width: 0;
-}
-
-.iig-settings .flex1 {
-    flex: 1;
-    min-width: 0;
-}
-
-.iig-settings hr {
-    margin: 8px 0;
-    border: none;
-    border-top: 1px solid var(--SmartThemeBorderColor);
-}
-
-.iig-settings h4 {
-    margin: 6px 0 2px;
-    color: var(--SmartThemeBodyColor);
-}
-
-.iig-settings h5 {
-    margin: 4px 0 2px;
-    color: var(--SmartThemeBodyColor);
-}
-
-.iig-settings .hint {
-    font-size: 0.85em;
-    color: var(--SmartThemeQuoteColor);
-    margin: 0;
-}
-
-/* =========================================
-   UTILITY
-   ========================================= */
-
-.iig-hidden {
-    display: none !important;
-}
-
-@keyframes iig-spin {
-    to { transform: rotate(360deg); }
-}
-
-/* =========================================
-   PROVIDER SECTIONS (Naistera / Nano-Banana)
-   ========================================= */
-
-.iig-naistera-refs {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 10px;
-    background: var(--SmartThemeBlurTintColor);
-    border-radius: 6px;
-}
-
-.iig-naistera-refs h4 {
-    margin: 0;
-}
-
-.iig-naistera-refs .hint {
-    margin-bottom: 4px;
-}
-
-.iig-avatar-section {
-    padding: 10px;
-    background: var(--SmartThemeBlurTintColor);
-    border-radius: 5px;
-    margin-top: 5px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.iig-avatar-section.hidden {
-    display: none;
-}
-
-/* =========================================
-   BUTTONS IN SETTINGS
-   ========================================= */
-
-.iig-refresh-btn {
-    padding: 5px 10px;
-    cursor: pointer;
-}
-
-.iig-refresh-btn.loading i {
-    animation: iig-spin 1s linear infinite;
-}
-
-.iig-key-toggle {
-    padding: 5px 10px;
-    cursor: pointer;
-}
-
-/* =========================================
-   LOADING PLACEHOLDER
-   ========================================= */
-
-.iig-loading-placeholder {
+.iig-confirm-placeholder {
     display: inline-flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 150px;
-    min-width: 150px;
-    max-width: 100%;
-    width: auto;
+    gap: 8px;
+    min-width: 220px;
+    max-width: 400px;
     background: var(--SmartThemeBlurTintColor);
+    border: 2px solid var(--SmartThemeBorderColor);
     border-radius: 10px;
-    padding: 15px;
-    margin: 5px;
-    border: 2px dashed var(--SmartThemeBorderColor);
+    padding: 14px;
+    margin: 5px 0;
     box-sizing: border-box;
 }
 
-.iig-loading-placeholder .iig-spinner {
-    width: 40px;
-    height: 40px;
-    border: 4px solid var(--SmartThemeBorderColor);
-    border-top-color: var(--SmartThemeBodyColor);
-    border-radius: 50%;
-    animation: iig-spin 1s linear infinite;
-}
-
-.iig-loading-placeholder .iig-status {
-    margin-top: 10px;
-    font-size: 0.9em;
-    color: var(--SmartThemeQuoteColor);
-    text-align: center;
-}
-
-/* =========================================
-   ERROR IMAGE
-   ========================================= */
-
-.iig-error-image {
-    display: block;
-    max-width: 300px;
-    min-width: 200px;
-    min-height: 150px;
-    width: 100%;
-    height: auto;
-    border-radius: 8px;
-    margin: 5px 0;
-    border: 2px solid rgba(255, 100, 100, 0.5);
-}
-
-/* Legacy error wrapper — kept for backwards compat */
-.iig-error-wrapper {
-    display: inline-block;
-    position: relative;
-    max-width: 100%;
-    margin: 5px 0;
-    border-radius: 8px;
-    overflow: hidden;
-    border: 2px solid rgba(255, 100, 100, 0.5);
-}
-
-/* Legacy error placeholder */
-.iig-error-placeholder {
+.iig-confirm-header {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    min-height: 150px;
-    min-width: 200px;
-    max-width: 400px;
-    background: rgba(255, 100, 100, 0.1);
-    border-radius: 10px;
-    padding: 20px;
-    margin: 10px 0;
-    border: 2px dashed rgba(255, 100, 100, 0.5);
+    gap: 6px;
+    font-weight: 600;
+    font-size: 0.95em;
+    color: var(--SmartThemeBodyColor);
 }
 
-.iig-error-placeholder .iig-error-icon {
-    font-size: 2em;
-    margin-bottom: 10px;
+.iig-confirm-icon {
+    font-size: 1.2em;
 }
 
-.iig-error-placeholder .iig-error-text {
-    font-size: 0.85em;
+.iig-confirm-prompt {
+    font-size: 0.82em;
     color: var(--SmartThemeQuoteColor);
-    text-align: center;
-    margin-bottom: 10px;
-    max-width: 300px;
+    line-height: 1.4;
     word-break: break-word;
+    max-height: 4.2em;       /* ~3 lines */
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.iig-error-placeholder .iig-retry-btn {
-    padding: 8px 16px;
-    background: var(--SmartThemeBodyColor);
-    color: var(--SmartThemeBlurTintColor);
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    transition: opacity 0.2s;
-}
-
-.iig-error-placeholder .iig-retry-btn:hover {
+.iig-confirm-style {
+    font-size: 0.8em;
+    color: var(--SmartThemeQuoteColor);
     opacity: 0.8;
 }
 
-/* =========================================
-   GENERATED IMAGE
-   ========================================= */
-
-.iig-generated-image {
-    max-width: 100%;
-    border-radius: 8px;
-    margin: 10px 0;
-    cursor: pointer;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+.iig-confirm-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 0.75em;
+    color: var(--SmartThemeQuoteColor);
+    opacity: 0.7;
 }
 
-.iig-generated-image:hover {
-    transform: scale(1.01);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+.iig-confirm-meta span {
+    background: rgba(128, 128, 128, 0.15);
+    padding: 2px 6px;
+    border-radius: 4px;
 }
 
-/* =========================================
-   LIGHTBOX
-   ========================================= */
+.iig-confirm-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 2px;
+}
 
-.iig-lightbox {
-    position: fixed;
-    inset: 0;
-    z-index: 99999;
+.iig-confirm-btn {
+    flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    animation: iig-lightbox-fadein 0.2s ease;
-}
-
-@keyframes iig-lightbox-fadein {
-    from { opacity: 0; }
-    to   { opacity: 1; }
-}
-
-.iig-lightbox-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.85);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    cursor: pointer;
-}
-
-.iig-lightbox-content {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    max-width: 92vw;
-    max-height: 92vh;
-    z-index: 1;
-}
-
-.iig-lightbox-image {
-    max-width: 90vw;
-    max-height: 80vh;
-    object-fit: contain;
-    border-radius: 8px;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
-    /* subtle entry animation */
-    animation: iig-lightbox-img-in 0.25s ease;
-}
-
-@keyframes iig-lightbox-img-in {
-    from { transform: scale(0.92); opacity: 0; }
-    to   { transform: scale(1);    opacity: 1; }
-}
-
-.iig-lightbox-info {
-    margin-top: 12px;
-    max-width: 700px;
-    text-align: center;
-    color: rgba(255, 255, 255, 0.85);
+    gap: 5px;
+    padding: 7px 12px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--SmartThemeBodyColor);
     font-size: 0.85em;
-    line-height: 1.45;
-    padding: 0 20px;
-    /* allow scrolling if prompt is very long */
-    max-height: 10vh;
-    overflow-y: auto;
-}
-
-.iig-lightbox-style {
-    font-weight: 600;
-    margin-bottom: 4px;
-    color: rgba(255, 255, 255, 0.95);
-}
-
-.iig-lightbox-prompt {
-    color: rgba(255, 255, 255, 0.7);
-    word-break: break-word;
-}
-
-.iig-lightbox-close {
-    position: absolute;
-    top: -10px;
-    right: -10px;
-    width: 36px;
-    height: 36px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0, 0, 0, 0.6);
-    color: #fff;
-    border-radius: 50%;
-    font-size: 18px;
     cursor: pointer;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    transition: background 0.15s, transform 0.15s;
-    z-index: 2;
+    transition: background 0.15s, border-color 0.15s;
 }
 
-.iig-lightbox-close:hover {
-    background: rgba(255, 80, 80, 0.7);
-    transform: scale(1.1);
+.iig-confirm-btn:hover {
+    background: rgba(128, 128, 128, 0.15);
+}
+
+.iig-btn-generate {
+    border-color: rgba(100, 200, 100, 0.5);
+}
+
+.iig-btn-generate:hover {
+    background: rgba(100, 200, 100, 0.15);
+    border-color: rgba(100, 200, 100, 0.8);
+}
+
+.iig-btn-skip {
+    border-color: rgba(180, 180, 180, 0.4);
+    flex: 0 0 auto;
+    padding: 7px 10px;
+}
+
+.iig-btn-skip:hover {
+    background: rgba(180, 180, 180, 0.1);
 }
 
 /* =========================================
-   REGENERATE BUTTON IN MESSAGE MENU
-   inherits .mes_button styling from ST
+   MANUAL PLACEHOLDER
    ========================================= */
 
-/* no extra overrides needed — .mes_button handles it */
+.iig-manual-placeholder {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    margin: 4px 0;
+    background: var(--SmartThemeBlurTintColor);
+    border: 1px dashed var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    font-size: 0.82em;
+    color: var(--SmartThemeQuoteColor);
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.iig-manual-icon {
+    font-size: 1.1em;
+    flex-shrink: 0;
+}
+
+.iig-manual-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}

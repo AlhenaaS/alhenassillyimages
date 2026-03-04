@@ -4,9 +4,9 @@
  * Catches [IMG:GEN:{json}] tags in AI messages and generates images via configured API.
  * Supports OpenAI-compatible, Gemini-compatible (nano-banana), and Naistera endpoints.
  *
- * v2.2 — Smart references, generation queue, timeouts, caching, lightbox,
+ * v2.3 — Smart references, generation queue, timeouts, caching, lightbox,
  *         generation modes (auto / confirm / manual), editable prompts,
- *         src-parse fix for spaces.
+ *         src-parse fix for spaces, structured prompt conversion.
  */
 
 const MODULE_NAME = 'inline_image_gen';
@@ -67,6 +67,7 @@ const defaultSettings = Object.freeze({
     naisteraSendCharAvatar: false,
     naisteraSendUserAvatar: false,
     naisteraReferenceMode: 'tag_controls',
+    useStructuredPrompt: true,
 });
 
 // ─── Model detection ─────────────────────────────────────────────────────────
@@ -122,6 +123,663 @@ function sanitizeForHtml(text) {
     const d = document.createElement('div');
     d.textContent = text;
     return d.innerHTML;
+}
+
+// ─── Structured Prompt Converter ─────────────────────────────────────────────
+
+/**
+ * Converts a free-form text prompt into a structured JSON prompt.
+ * Parses the text using NLP heuristics to extract camera, subject, environment,
+ * lighting, and other structured fields.
+ *
+ * @param {string} textPrompt - The free-form text prompt (150-250 words)
+ * @param {string} style - The style string from the tag
+ * @param {object} tagInfo - Additional tag info (aspect_ratio, etc.)
+ * @returns {string} - JSON string of the structured prompt
+ */
+function convertPromptToStructured(textPrompt, style = '', tagInfo = {}) {
+    if (!textPrompt) return textPrompt;
+
+    const text = textPrompt.trim();
+    const textLower = text.toLowerCase();
+
+    // ─── Parse Camera / Framing ───
+    const cameraAngle = extractCameraAngle(textLower);
+    const shotType = extractShotType(textLower);
+    const dof = extractDepthOfField(textLower);
+    const focalLength = extractFocalLength(textLower);
+    const composition = extractComposition(textLower);
+
+    // ─── Parse Subject ───
+    const gender = extractGender(textLower);
+    const age = extractAge(textLower);
+    const skinTone = extractSkinTone(textLower);
+    const bodyType = extractBodyType(textLower);
+    const clothing = extractClothing(text);
+    const accessories = extractAccessories(text);
+    const hairDesc = extractHair(text);
+    const faceDesc = extractFace(text);
+    const expression = extractExpression(textLower);
+
+    // ─── Parse Pose ───
+    const pose = extractPose(text);
+
+    // ─── Parse Environment ───
+    const location = extractLocation(text);
+    const envObjects = extractEnvironmentObjects(text);
+    const weather = extractWeather(textLower);
+    const timeOfDay = extractTimeOfDay(textLower);
+
+    // ─── Parse Lighting & Atmosphere ───
+    const lighting = extractLighting(text);
+    const colorPalette = extractColorPalette(text);
+    const atmosphere = extractAtmosphere(textLower);
+
+    // ─── Parse Visual Style ───
+    const realism = extractRealism(style, textLower);
+    const cinematic = extractCinematic(style, textLower);
+
+    // ─── Build focus progression ───
+    const focusProgression = buildFocusProgression(text, shotType);
+
+    // ─── Build visual emphasis ───
+    const visualEmphasis = buildVisualEmphasis(text, style);
+
+    // ─── Construct structured object ───
+    const structured = {
+        style: {
+            realism: realism,
+            cinematic: cinematic,
+            camera_angle: cameraAngle || shotType || 'eye level medium shot',
+            aspect_ratio: tagInfo.aspectRatio || '1:1',
+            depth_of_field: dof || 'moderate',
+            ...(focalLength ? { focal_length: focalLength } : {}),
+            ...(style ? { visual_reference: style } : {}),
+        },
+        subject: {
+            gender: gender || 'unspecified',
+            appearance: {
+                skin_tone: skinTone || extractFromText(text, /skin[^,.]*(?:tone|color|complexion)[^,.]*[,.]?/i) || 'natural',
+                body_type: bodyType || 'average build',
+                age: age || 'adult',
+                ...(hairDesc ? { hair: hairDesc } : {}),
+                ...(faceDesc ? { face: faceDesc } : {}),
+                ...(expression ? { expression: expression } : {}),
+            },
+            clothing: clothing || extractLargeSegment(text, /(?:wear(?:ing|s)?|dressed in|clad in|outfit)[^.]*\./i) || 'casual clothing',
+            ...(accessories.length ? { accessories: accessories } : {}),
+        },
+        pose: pose,
+        framing: {
+            composition: composition || 'centered subject',
+            camera_position: `${shotType || 'medium shot'}, ${cameraAngle || 'eye level'}`,
+            focus_progression: focusProgression,
+        },
+        environment: {
+            location: location || 'unspecified interior',
+            ...(envObjects.length ? { objects: envObjects } : {}),
+            ...(weather ? { weather: weather } : {}),
+            ...(timeOfDay ? { time_of_day: timeOfDay } : {}),
+        },
+        ...(visualEmphasis.length ? { visual_emphasis: visualEmphasis } : {}),
+        ...(lighting ? { lighting: lighting } : {}),
+        ...(colorPalette ? { color_palette: colorPalette } : {}),
+        ...(atmosphere ? { atmosphere: atmosphere } : {}),
+    };
+
+    // Clean up undefined/null values recursively
+    const cleaned = cleanObject(structured);
+
+    iigLog('INFO', 'Structured prompt:', JSON.stringify(cleaned).substring(0, 500));
+    return JSON.stringify(cleaned);
+}
+
+// ─── Extraction helpers ──────────────────────────────────────────────────────
+
+function extractCameraAngle(text) {
+    const angles = {
+        'bird.?s?.?eye': "bird's eye view",
+        'top.?down': 'top-down',
+        'overhead': 'overhead',
+        'high angle': 'high angle',
+        'low angle': 'low angle',
+        'worm.?s?.?eye': "worm's eye view",
+        'dutch angle': 'dutch angle',
+        'tilted': 'tilted angle',
+        'eye level': 'eye level',
+        'straight.?on': 'straight on',
+        'three.?quarter': 'three-quarter angle',
+        '3\\/4': 'three-quarter angle',
+        'profile': 'profile view',
+        'side view': 'side view',
+        'from behind': 'from behind',
+        'over.?the.?shoulder': 'over-the-shoulder',
+        'pov': 'POV first-person',
+        'first.?person': 'POV first-person',
+        'aerial': 'aerial view',
+        'isometric': 'isometric view',
+    };
+    for (const [pattern, value] of Object.entries(angles)) {
+        if (new RegExp(pattern, 'i').test(text)) return value;
+    }
+    return null;
+}
+
+function extractShotType(text) {
+    const shots = {
+        'extreme close.?up': 'extreme close-up',
+        'close.?up': 'close-up',
+        'medium close.?up': 'medium close-up',
+        'bust shot': 'bust shot',
+        'medium shot': 'medium shot',
+        'cowboy shot': 'cowboy shot',
+        'american shot': 'american shot',
+        'full.?body': 'full body shot',
+        'full shot': 'full shot',
+        'wide shot': 'wide shot',
+        'long shot': 'long shot',
+        'extreme long shot': 'extreme long shot',
+        'establishing shot': 'establishing shot',
+        'portrait': 'portrait',
+        'headshot': 'headshot',
+        'half.?body': 'half-body shot',
+        'knee.?up': 'knee-up shot',
+        'waist.?up': 'waist-up shot',
+        'telephoto': 'telephoto compression',
+    };
+    for (const [pattern, value] of Object.entries(shots)) {
+        if (new RegExp(pattern, 'i').test(text)) return value;
+    }
+    return null;
+}
+
+function extractDepthOfField(text) {
+    if (/shallow\s*(?:depth|dof|d\.o\.f)/i.test(text)) return 'shallow';
+    if (/deep\s*(?:depth|dof|d\.o\.f|focus)/i.test(text)) return 'deep';
+    if (/bokeh/i.test(text)) return 'shallow with bokeh';
+    if (/everything\s*in\s*focus/i.test(text)) return 'deep, everything in focus';
+    if (/blurr(?:ed|y)\s*background/i.test(text)) return 'shallow, blurred background';
+    if (/sharp\s*(?:throughout|across)/i.test(text)) return 'deep, sharp throughout';
+    if (/tilt.?shift/i.test(text)) return 'tilt-shift miniature effect';
+    return null;
+}
+
+function extractFocalLength(text) {
+    const m = text.match(/(\d+)\s*mm/i);
+    if (m) return `${m[1]}mm`;
+    if (/wide.?angle/i.test(text)) return 'wide-angle (~24mm)';
+    if (/telephoto/i.test(text)) return 'telephoto (~200mm)';
+    if (/macro/i.test(text)) return 'macro lens';
+    if (/fisheye/i.test(text)) return 'fisheye (~8mm)';
+    return null;
+}
+
+function extractComposition(text) {
+    const comps = [];
+    if (/rule\s*of\s*thirds/i.test(text)) comps.push('rule of thirds');
+    if (/center(?:ed)?(?:\s*(?:frame|composition|subject))?/i.test(text)) comps.push('centered');
+    if (/(?:left|right).?third/i.test(text)) comps.push(text.match(/(left|right).?third/i)[0]);
+    if (/symmetr/i.test(text)) comps.push('symmetrical');
+    if (/asymmetr/i.test(text)) comps.push('asymmetrical');
+    if (/golden\s*ratio/i.test(text)) comps.push('golden ratio');
+    if (/leading\s*lines/i.test(text)) comps.push('leading lines');
+    if (/negative\s*space/i.test(text)) comps.push('negative space');
+    if (/frame\s*within/i.test(text)) comps.push('frame within frame');
+    if (/diagonal/i.test(text)) comps.push('diagonal composition');
+    return comps.length ? comps.join(', ') : null;
+}
+
+function extractGender(text) {
+    if (/\b(?:woman|female|girl|lady|she|her\b|mother|sister|daughter|wife|girlfriend|queen|princess|actress|waitress|businesswoman|heroine)\b/i.test(text)) return 'female';
+    if (/\b(?:man|male|boy|guy|he\b|his\b|father|brother|son|husband|boyfriend|king|prince|actor|waiter|businessman|hero)\b/i.test(text)) return 'male';
+    if (/\b(?:non.?binary|androgynous|they\/them|genderqueer|agender)\b/i.test(text)) return 'non-binary';
+    return null;
+}
+
+function extractAge(text) {
+    const m = text.match(/\b(\d{1,3})\s*(?:year|yr)s?\s*old\b/i);
+    if (m) return `${m[1]} years old`;
+    if (/\b(?:child|kid|little)\b/i.test(text)) return 'child';
+    if (/\b(?:teen(?:age)?|adolescent)\b/i.test(text)) return 'teenager';
+    if (/\byoung\s*(?:adult|woman|man)\b/i.test(text)) return 'young adult';
+    if (/\bmiddle.?aged?\b/i.test(text)) return 'middle-aged';
+    if (/\b(?:elder|old|aged|senior|elderly)\b/i.test(text)) return 'elderly';
+    if (/\b(?:twenties|20s)\b/i.test(text)) return 'in their 20s';
+    if (/\b(?:thirties|30s)\b/i.test(text)) return 'in their 30s';
+    if (/\b(?:forties|40s)\b/i.test(text)) return 'in their 40s';
+    return null;
+}
+
+function extractSkinTone(text) {
+    const tones = [
+        'pale', 'fair', 'light', 'ivory', 'porcelain', 'alabaster',
+        'olive', 'tan', 'tanned', 'bronze', 'bronzed', 'golden',
+        'brown', 'dark', 'deep', 'ebony', 'mahogany', 'caramel',
+        'warm', 'cool', 'neutral', 'rosy', 'sun-kissed', 'freckled',
+        'weathered', 'ruddy'
+    ];
+    for (const tone of tones) {
+        const re = new RegExp(`\\b${tone}\\s*(?:skin(?:ned)?|complex(?:ion|ted)|tone)\\b`, 'i');
+        if (re.test(text)) return `${tone} skin`;
+    }
+    // Also check for "X-skinned" pattern
+    const m = text.match(/(\w+)[- ]skinned/i);
+    if (m) return `${m[1]} skin`;
+    return null;
+}
+
+function extractBodyType(text) {
+    const types = {
+        'athletic': 'athletic', 'muscular': 'muscular', 'toned': 'toned',
+        'slim': 'slim', 'slender': 'slender', 'thin': 'thin', 'lean': 'lean', 'lithe': 'lithe',
+        'petite': 'petite', 'curvy': 'curvy', 'voluptuous': 'voluptuous', 'plump': 'plump',
+        'heavyset': 'heavyset', 'stocky': 'stocky', 'burly': 'burly', 'broad': 'broad-shouldered',
+        'tall': 'tall', 'short': 'short', 'average': 'average build',
+        'wiry': 'wiry', 'lanky': 'lanky', 'compact': 'compact build',
+    };
+    for (const [pattern, value] of Object.entries(types)) {
+        if (new RegExp(`\\b${pattern}\\b`, 'i').test(text)) return value;
+    }
+    return null;
+}
+
+function extractClothing(text) {
+    // Try to find clothing descriptions
+    const patterns = [
+        /(?:wear(?:ing|s)?|dressed\s+in|clad\s+in)\s+([^.]{10,120})\./i,
+        /(?:outfit|attire|costume|uniform|dress|suit|jacket|coat|shirt|blouse|skirt|pants|jeans|shorts|top)\s*(?:of|with|in)?\s*[^.]{5,80}\./i,
+    ];
+    for (const p of patterns) {
+        const m = text.match(p);
+        if (m) return m[1] ? m[1].trim() : m[0].trim().replace(/\.$/, '');
+    }
+
+    // Fallback: look for individual clothing items
+    const items = [];
+    const clothingWords = [
+        'dress', 'gown', 'suit', 'tuxedo', 'jacket', 'blazer', 'coat', 'overcoat',
+        'shirt', 'blouse', 'top', 't-shirt', 'sweater', 'hoodie', 'cardigan',
+        'pants', 'trousers', 'jeans', 'shorts', 'skirt', 'leggings',
+        'boots', 'shoes', 'heels', 'sneakers', 'sandals',
+        'scarf', 'tie', 'hat', 'cap', 'gloves', 'vest', 'apron',
+        'uniform', 'armor', 'armour', 'robe', 'kimono', 'yukata',
+    ];
+    for (const item of clothingWords) {
+        const re = new RegExp(`(?:\\w+\\s+){0,3}${item}(?:\\s+\\w+){0,2}`, 'i');
+        const m = text.match(re);
+        if (m) items.push(m[0].trim());
+    }
+    return items.length ? items.join(', ') : null;
+}
+
+function extractAccessories(text) {
+    const accessories = [];
+    const accPatterns = [
+        { re: /(?:necklace|pendant|chain|choker)\s*[^,.]{0,50}/i, type: 'necklace' },
+        { re: /(?:earring|ear\s*ring|stud)s?\s*[^,.]{0,40}/i, type: 'earrings' },
+        { re: /(?:bracelet|bangle|wristband|cuff)\s*[^,.]{0,40}/i, type: 'bracelet' },
+        { re: /(?:ring(?:\s+on)?)\s*[^,.]{0,40}/i, type: 'ring' },
+        { re: /(?:watch|wristwatch)\s*[^,.]{0,40}/i, type: 'watch' },
+        { re: /(?:glasses|spectacles|sunglasses|shades)\s*[^,.]{0,40}/i, type: 'eyewear' },
+        { re: /(?:hat|cap|beanie|beret|hood|crown|tiara|headband)\s*[^,.]{0,40}/i, type: 'headwear' },
+        { re: /(?:tattoo)s?\s*[^,.]{0,50}/i, type: 'tattoo' },
+        { re: /(?:piercing)s?\s*[^,.]{0,40}/i, type: 'piercing' },
+        { re: /(?:bag|purse|backpack|satchel|handbag)\s*[^,.]{0,40}/i, type: 'bag' },
+        { re: /(?:belt)\s*[^,.]{0,30}/i, type: 'belt' },
+        { re: /(?:weapon|sword|gun|pistol|rifle|knife|dagger|blade)\s*[^,.]{0,40}/i, type: 'weapon' },
+    ];
+    for (const { re, type } of accPatterns) {
+        const m = text.match(re);
+        if (m) {
+            accessories.push({
+                type: type,
+                description: m[0].trim(),
+            });
+        }
+    }
+    return accessories;
+}
+
+function extractHair(text) {
+    const hairPatterns = [
+        /(?:hair)\s*[^.]{5,80}\./i,
+        /(?:\w+\s+){0,3}(?:hair|locks|tresses|curls|braids?|ponytail|bun|bangs|fringe)(?:\s+\w+){0,5}/i,
+    ];
+    for (const p of hairPatterns) {
+        const m = text.match(p);
+        if (m) return m[0].trim().replace(/\.$/, '');
+    }
+    return null;
+}
+
+function extractFace(text) {
+    const facePatterns = [
+        /(?:face|facial)\s+[^.]{5,60}\./i,
+        /(?:eyes?|nose|lips?|mouth|jaw|chin|cheek|brow|forehead)\s+[^.]{3,50}/i,
+    ];
+    const parts = [];
+    for (const p of facePatterns) {
+        const m = text.match(p);
+        if (m) parts.push(m[0].trim().replace(/\.$/, ''));
+    }
+    return parts.length ? parts.join('; ') : null;
+}
+
+function extractExpression(text) {
+    const expressions = {
+        'smil(?:e|ing)': 'smiling', 'grin(?:ning)?': 'grinning', 'laugh(?:ing)?': 'laughing',
+        'frown(?:ing)?': 'frowning', 'scowl(?:ing)?': 'scowling', 'glare|glaring': 'glaring',
+        'neutral': 'neutral', 'serious': 'serious', 'stern': 'stern',
+        'sad|sorrow': 'sad', 'crying|tears': 'crying', 'weeping': 'weeping',
+        'angry|furious': 'angry', 'rage|raging': 'enraged',
+        'surprised|shocked': 'surprised', 'confused|puzzled': 'confused',
+        'smirk(?:ing)?': 'smirking', 'pensive|thoughtful': 'pensive',
+        'dreamy|wistful': 'dreamy', 'determined': 'determined',
+        'fearful|afraid|scared': 'fearful', 'disgusted': 'disgusted',
+        'bored|uninterested': 'bored', 'amused': 'amused',
+        'contempt': 'contemptuous', 'nostalgic': 'nostalgic',
+        'tired|exhausted|weary': 'tired', 'relaxed|calm|serene': 'relaxed',
+    };
+    for (const [pattern, value] of Object.entries(expressions)) {
+        if (new RegExp(`\\b(?:${pattern})\\b`, 'i').test(text)) return value;
+    }
+    return null;
+}
+
+function extractPose(text) {
+    const pose = {
+        overall_posture: 'standing naturally',
+    };
+
+    // Overall posture
+    const postures = {
+        'standing': 'standing', 'sitting': 'sitting', 'seated': 'seated',
+        'kneeling': 'kneeling', 'crouching': 'crouching', 'squatting': 'squatting',
+        'lying|laying': 'lying down', 'reclining': 'reclining', 'leaning': 'leaning',
+        'walking': 'walking', 'running': 'running', 'jumping': 'jumping',
+        'dancing': 'dancing', 'fighting': 'in fighting stance',
+        'hunched|slouch': 'hunched/slouching', 'upright|straight': 'upright',
+        'crossed.?(?:arms|legs)': 'arms/legs crossed',
+        'hands?.?(?:on|in).?(?:hip|pocket)': 'hands on hips/in pockets',
+    };
+    for (const [pattern, value] of Object.entries(postures)) {
+        if (new RegExp(`\\b(?:${pattern})\\b`, 'i').test(text.toLowerCase())) {
+            pose.overall_posture = value;
+            break;
+        }
+    }
+
+    // Arm/hand positions
+    const armPatterns = [
+        /(?:left|right)\s*(?:hand|arm)\s+[^,.]{3,50}/gi,
+        /(?:hands?|arms?)\s+(?:raised|extended|folded|crossed|behind|above|resting|gripping|holding)[^,.]{0,40}/gi,
+    ];
+    for (const p of armPatterns) {
+        const matches = text.match(p);
+        if (matches) {
+            for (const m of matches) {
+                const lower = m.toLowerCase();
+                if (lower.includes('left')) {
+                    pose.left_arm = { position: m.trim(), interaction: extractInteraction(m) };
+                } else if (lower.includes('right')) {
+                    pose.right_arm = { position: m.trim(), interaction: extractInteraction(m) };
+                } else {
+                    if (!pose.arms) pose.arms = { position: m.trim(), interaction: extractInteraction(m) };
+                }
+            }
+        }
+    }
+
+    // Gaze direction
+    const gazeMatch = text.match(/(?:gaze|gazing|looking|staring|glancing)\s+(?:at|toward|into|away|down|up|off|directly)[^,.]{0,40}/i);
+    if (gazeMatch) pose.gaze = gazeMatch[0].trim();
+
+    return pose;
+}
+
+function extractInteraction(text) {
+    const interactions = [
+        'holding', 'gripping', 'touching', 'resting on', 'leaning against',
+        'reaching for', 'pointing at', 'pressing against', 'wrapped around',
+    ];
+    for (const i of interactions) {
+        if (text.toLowerCase().includes(i)) return i;
+    }
+    return 'natural position';
+}
+
+function extractLocation(text) {
+    // Try to find location descriptions
+    const locPatterns = [
+        /(?:in\s+(?:a|an|the)\s+)([^,.]{5,80}(?:room|kitchen|bedroom|office|hallway|corridor|street|alley|garden|park|forest|beach|rooftop|balcony|bar|cafe|restaurant|church|temple|castle|palace|warehouse|factory|lab(?:oratory)?|hospital|school|library|museum|station|airport|market|bazaar|square|plaza|courtyard|apartment|flat|house|mansion|cabin|cottage|tent|bunker|basement|attic))/i,
+        /(?:background|setting|scene|location|environment)(?:\s*:?\s*|\s+(?:is|shows|features)\s+)([^.]{10,100})/i,
+    ];
+    for (const p of locPatterns) {
+        const m = text.match(p);
+        if (m) return m[1].trim();
+    }
+
+    // Fallback: look for environment keywords
+    const envKeywords = [
+        'interior', 'exterior', 'indoor', 'outdoor', 'urban', 'rural',
+        'city', 'countryside', 'forest', 'ocean', 'mountain', 'desert',
+        'snow', 'rain', 'night', 'rooftop', 'underground', 'underwater',
+    ];
+    for (const kw of envKeywords) {
+        if (text.toLowerCase().includes(kw)) return kw;
+    }
+    return null;
+}
+
+function extractEnvironmentObjects(text) {
+    const objects = [];
+    const objPatterns = [
+        /(?:foreground|background|mid.?ground)\s*[^,.]{5,60}/gi,
+        /(?:table|chair|desk|sofa|couch|bed|shelf|bookshelf|window|door|wall|floor|ceiling|mirror|lamp|candle|screen|monitor|phone|book|cup|mug|bottle|glass|plate|weapon|car|vehicle|tree|plant|flower|statue|painting|poster|sign|clock|fireplace)\s*[^,.]{0,40}/gi,
+    ];
+    const seen = new Set();
+    for (const p of objPatterns) {
+        const matches = text.match(p);
+        if (matches) {
+            for (const m of matches) {
+                const trimmed = m.trim().substring(0, 80);
+                if (!seen.has(trimmed.toLowerCase())) {
+                    seen.add(trimmed.toLowerCase());
+                    objects.push(trimmed);
+                }
+            }
+        }
+    }
+    return objects.slice(0, 8);
+}
+
+function extractWeather(text) {
+    const weather = {
+        'rain(?:ing|y)?': 'rainy', 'storm(?:y)?|thunder': 'stormy',
+        'snow(?:ing|y)?': 'snowy', 'fog(?:gy)?|mist(?:y)?': 'foggy/misty',
+        'sunny|bright sun': 'sunny', 'cloud(?:y|s)': 'cloudy', 'overcast': 'overcast',
+        'wind(?:y)?|breez(?:e|y)': 'windy', 'hail': 'hail',
+        'clear sky': 'clear', 'humid': 'humid', 'dry': 'dry',
+    };
+    for (const [pattern, value] of Object.entries(weather)) {
+        if (new RegExp(`\\b(?:${pattern})\\b`, 'i').test(text)) return value;
+    }
+    return null;
+}
+
+function extractTimeOfDay(text) {
+    const times = {
+        'dawn|sunrise|early morning': 'dawn', 'morning': 'morning',
+        'noon|midday': 'noon', 'afternoon': 'afternoon',
+        'dusk|sunset|golden hour': 'golden hour/sunset',
+        'twilight|blue hour': 'twilight', 'evening': 'evening',
+        'night|midnight|late night': 'night',
+    };
+    for (const [pattern, value] of Object.entries(times)) {
+        if (new RegExp(`\\b(?:${pattern})\\b`, 'i').test(text)) return value;
+    }
+    return null;
+}
+
+function extractLighting(text) {
+    const lightParts = [];
+    const lightPatterns = {
+        'natural light': 'natural light', 'artificial light': 'artificial light',
+        'neon': 'neon lighting', 'fluorescent': 'fluorescent lighting',
+        'candlelight|candle.?lit': 'candlelight', 'firelight|fire.?lit': 'firelight',
+        'backli[gt]': 'backlighting', 'rim light': 'rim lighting',
+        'side.?li[gt]': 'side lighting', 'top.?li[gt]': 'top lighting',
+        'under.?li[gt]': 'under lighting',
+        'harsh': 'harsh lighting', 'soft': 'soft lighting', 'diffused': 'diffused lighting',
+        'dramatic': 'dramatic lighting', 'volumetric': 'volumetric lighting',
+        'chiaroscuro': 'chiaroscuro', 'rembrandt': 'Rembrandt lighting',
+        'spotlight': 'spotlight', 'ambient': 'ambient lighting',
+        'warm light': 'warm light', 'cool light': 'cool light', 'cold light': 'cold light',
+        'golden light': 'golden light', 'blue light': 'blue light',
+        'shadow': 'prominent shadows', 'silhouette': 'silhouette',
+        'lens flare': 'lens flare', 'god.?rays?|light.?rays?': 'god rays',
+    };
+    for (const [pattern, value] of Object.entries(lightPatterns)) {
+        if (new RegExp(`\\b(?:${pattern})\\b`, 'i').test(text.toLowerCase())) lightParts.push(value);
+    }
+    return lightParts.length ? lightParts.join(', ') : null;
+}
+
+function extractColorPalette(text) {
+    const colorParts = [];
+    const colorPatterns = {
+        'desaturat': 'desaturated', 'saturat': 'saturated', 'muted': 'muted colors',
+        'vibrant': 'vibrant colors', 'pastel': 'pastel tones', 'monochrome|monochromatic': 'monochrome',
+        'sepia': 'sepia tones', 'black.?and.?white|b&w|grayscale': 'black and white',
+        'warm\s*(?:tones?|colors?|palette)': 'warm palette', 'cool\s*(?:tones?|colors?|palette)': 'cool palette',
+        'earth\s*(?:y\s*)?tones?': 'earthy tones', 'neon\s*colors?': 'neon colors',
+        'high.?contrast': 'high contrast', 'low.?contrast': 'low contrast',
+        'teal\s*(?:and|&)\s*orange': 'teal and orange grading',
+        'cross.?process': 'cross-processed', 'bleach.?bypass': 'bleach bypass',
+    };
+    for (const [pattern, value] of Object.entries(colorPatterns)) {
+        if (new RegExp(`\\b(?:${pattern})\\b`, 'i').test(text.toLowerCase())) colorParts.push(value);
+    }
+    return colorParts.length ? colorParts.join(', ') : null;
+}
+
+function extractAtmosphere(text) {
+    const atmospheres = [];
+    const atmoPatterns = {
+        'moody|somber|melanchol': 'moody/melancholic', 'eerie|creepy|sinister': 'eerie',
+        'cozy|warm|intimate': 'cozy/intimate', 'tense|suspense|ominous': 'tense/suspenseful',
+        'serene|peaceful|tranquil': 'serene', 'chaotic|frantic|frenzied': 'chaotic',
+        'nostalgic|wistful': 'nostalgic', 'romantic': 'romantic',
+        'mysterious|enigmatic': 'mysterious', 'gritty|raw': 'gritty/raw',
+        'ethereal|dreamy|otherworldly': 'ethereal/dreamy', 'oppressive|suffocating': 'oppressive',
+        'playful|whimsical': 'playful', 'solemn|grave': 'solemn',
+        'desolate|abandoned|forsaken': 'desolate', 'lively|vibrant|energetic': 'lively/vibrant',
+        'sterile|clinical': 'sterile/clinical', 'dusty|hazy|smoky': 'dusty/hazy',
+    };
+    for (const [pattern, value] of Object.entries(atmoPatterns)) {
+        if (new RegExp(`\\b(?:${pattern})\\b`, 'i').test(text)) atmospheres.push(value);
+    }
+    return atmospheres.length ? atmospheres.join(', ') : null;
+}
+
+function extractRealism(style, text) {
+    if (/photorealis/i.test(style + ' ' + text)) return 'photorealistic';
+    if (/hyperrealis/i.test(style + ' ' + text)) return 'hyperrealistic';
+    if (/cartoon|anime|manga/i.test(style + ' ' + text)) return 'stylized/anime';
+    if (/oil\s*paint|watercolor|illustration|drawn|sketch/i.test(style + ' ' + text)) return 'artistic/painted';
+    if (/3d\s*render|cgi|unreal/i.test(style + ' ' + text)) return '3D rendered';
+    if (/pixel\s*art/i.test(style + ' ' + text)) return 'pixel art';
+    if (/comic/i.test(style + ' ' + text)) return 'comic style';
+    if (/realis/i.test(style + ' ' + text)) return 'realistic';
+    // Default based on style keywords
+    if (/film|camera|lens|photo|35mm|fujifilm|kodak|polaroid|disposable|CCTV|surveillance/i.test(style)) return 'photographic';
+    return 'balanced';
+}
+
+function extractCinematic(style, text) {
+    if (/cinematic|film|movie|a24|blockbuster|anamorphic/i.test(style + ' ' + text)) return true;
+    return false;
+}
+
+function buildFocusProgression(text, shotType) {
+    const progression = [];
+    const textLower = text.toLowerCase();
+
+    // Start with overall composition
+    if (shotType) progression.push(`${shotType} framing`);
+    else progression.push('overall scene');
+
+    // Subject focus
+    if (/face|portrait|headshot|close.?up/i.test(textLower)) progression.push('facial features and expression');
+    else if (/full.?body|wide/i.test(textLower)) progression.push('full figure and posture');
+    else progression.push('subject center of interest');
+
+    // Detail focus
+    const details = [];
+    if (/eye/i.test(textLower)) details.push('eyes');
+    if (/hand/i.test(textLower)) details.push('hands');
+    if (/hair/i.test(textLower)) details.push('hair');
+    if (/cloth|fabric|outfit|dress/i.test(textLower)) details.push('clothing texture');
+    if (/skin|pore|freckle|scar/i.test(textLower)) details.push('skin detail');
+    if (/accessory|jewelry|watch|ring/i.test(textLower)) details.push('accessories');
+    if (details.length) progression.push(details.join(', '));
+    else progression.push('defining details');
+
+    // Environment/background
+    if (/background|environment|setting|scene/i.test(textLower)) progression.push('background environment');
+    else progression.push('surrounding context');
+
+    return progression.slice(0, 5);
+}
+
+function buildVisualEmphasis(text, style) {
+    const emphasis = [];
+    const combined = (text + ' ' + style).toLowerCase();
+
+    if (/texture|material|fabric|surface/i.test(combined)) emphasis.push('material textures');
+    if (/contrast|shadow|highlight/i.test(combined)) emphasis.push('light-shadow contrast');
+    if (/color|palette|tone|hue/i.test(combined)) emphasis.push('color relationships');
+    if (/detail|intricate|fine/i.test(combined)) emphasis.push('fine details');
+    if (/emotion|mood|feeling|atmosphere/i.test(combined)) emphasis.push('emotional resonance');
+    if (/movement|motion|dynamic|action/i.test(combined)) emphasis.push('sense of movement');
+    if (/grain|noise|artifact|distortion/i.test(combined)) emphasis.push('textural imperfections');
+    if (/reflection|mirror|glass|water/i.test(combined)) emphasis.push('reflections');
+    if (/depth|dimension|space|layering/i.test(combined)) emphasis.push('spatial depth');
+
+    if (!emphasis.length) {
+        // Default emphasis based on context
+        emphasis.push('subject presence');
+        emphasis.push('atmospheric consistency');
+    }
+
+    return emphasis.slice(0, 4);
+}
+
+function extractFromText(text, regex) {
+    const m = text.match(regex);
+    return m ? m[0].trim() : null;
+}
+
+function extractLargeSegment(text, regex) {
+    const m = text.match(regex);
+    return m ? m[0].trim().replace(/\.$/, '') : null;
+}
+
+function cleanObject(obj) {
+    if (obj === null || obj === undefined) return undefined;
+    if (typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) {
+        const cleaned = obj.map(cleanObject).filter(v => v !== undefined && v !== null && v !== '');
+        return cleaned.length ? cleaned : undefined;
+    }
+    const result = {};
+    for (const [key, value] of Object.entries(obj)) {
+        const cleaned = cleanObject(value);
+        if (cleaned !== undefined && cleaned !== null && cleaned !== '') {
+            result[key] = cleaned;
+        }
+    }
+    return Object.keys(result).length ? result : undefined;
 }
 
 // ─── Fetch with timeout ──────────────────────────────────────────────────────
@@ -257,10 +915,25 @@ async function collectReferences(tag, mode = 'gemini') {
 
 // ─── Generation functions ────────────────────────────────────────────────────
 
+/**
+ * Prepares the final prompt string, optionally converting to structured format.
+ * @param {string} prompt - Raw text prompt
+ * @param {string} style - Style string
+ * @param {object} tagInfo - Tag info with aspectRatio, imageSize, etc.
+ * @returns {string} - Final prompt (either text or JSON string)
+ */
+function prepareFinalPrompt(prompt, style, tagInfo = {}) {
+    const s = getSettings();
+    if (s.useStructuredPrompt) {
+        return convertPromptToStructured(prompt, style, tagInfo);
+    }
+    return style ? `[Style: ${style}] ${prompt}` : prompt;
+}
+
 async function generateImageOpenAI(prompt, style, refs = [], options = {}) {
     const s = getSettings();
     const url = `${s.endpoint.replace(/\/$/, '')}/v1/images/generations`;
-    const fp = style ? `[Style: ${style}] ${prompt}` : prompt;
+    const fp = prepareFinalPrompt(prompt, style, options);
     let size = s.size;
     if (options.aspectRatio === '16:9') size = '1792x1024';
     else if (options.aspectRatio === '9:16') size = '1024x1792';
@@ -282,7 +955,7 @@ async function generateImageGemini(prompt, style, refs = [], options = {}) {
     let is = options.imageSize || s.imageSize || '1K'; if (!VALID_IMAGE_SIZES.includes(is)) is = '1K';
     const parts = [];
     for (const ref of refs.slice(0, 4)) parts.push({ inlineData: { mimeType: 'image/png', data: typeof ref === 'string' ? ref : ref.image } });
-    let fp = style ? `[Style: ${style}] ${prompt}` : prompt;
+    let fp = prepareFinalPrompt(prompt, style, { ...options, tagInfo: options.tagInfo });
     if (refs.length) fp = `${buildReferenceInstruction(refs, options.tagInfo || {})}\n\n${fp}`;
     parts.push({ text: fp });
     const body = { contents: [{ role: 'user', parts }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: ar, imageSize: is } } };
@@ -301,7 +974,7 @@ async function generateImageNaistera(prompt, style, refs = [], options = {}) {
     const s = getSettings();
     const ep = s.endpoint.replace(/\/$/, '');
     const url = ep.endsWith('/api/generate') ? ep : `${ep}/api/generate`;
-    const fp = style ? `[Style: ${style}] ${prompt}` : prompt;
+    const fp = prepareFinalPrompt(prompt, style, options);
     const body = { prompt: fp, aspect_ratio: options.aspectRatio || s.naisteraAspectRatio || '1:1' };
     const preset = options.preset || s.naisteraPreset; if (preset) body.preset = preset;
     if (refs.length) body.reference_images = refs.slice(0, 4).map(r => typeof r === 'string' ? r : r.image);
@@ -478,9 +1151,6 @@ function createErrorPlaceholder(tagId, errMsg, tagInfo) {
     return img;
 }
 
-/**
- * Confirm placeholder with editable prompt and style
- */
 function createConfirmPlaceholder(tagId, tag, idx, total, onConfirm) {
     const el = document.createElement('div');
     el.className = 'iig-confirm-placeholder'; el.dataset.tagId = tagId;
@@ -581,16 +1251,6 @@ async function processInBatches(items, fn, concurrency = 1) {
 
 // ─── Core generation for a single tag ────────────────────────────────────────
 
-/**
- * Generate a single image and replace the placeholder element
- * @param {object} tag - Tag data
- * @param {number} index - Tag index
- * @param {number} total - Total tags
- * @param {HTMLElement} placeholderElement - The DOM element to replace (loading placeholder)
- * @param {object} message - Chat message object
- * @param {string} prompt - Prompt to use (may be edited by user)
- * @param {string} style - Style to use (may be edited by user)
- */
 async function generateAndReplace(tag, index, total, placeholderElement, message, prompt, style) {
     const settings = getSettings();
     const context = SillyTavern.getContext();
@@ -600,7 +1260,6 @@ async function generateAndReplace(tag, index, total, placeholderElement, message
     const statusEl = loadingEl.querySelector('.iig-status');
 
     try {
-        // Check cache
         if (settings.enableCache) {
             const ck = getCacheKey(prompt, style, tag.aspectRatio, tag.imageSize);
             if (imageCache.has(ck)) {
@@ -672,7 +1331,6 @@ async function processMessageTags(messageId) {
 
     const total = tags.length;
 
-    // ── Manual mode ──
     if (settings.generationMode === 'manual') {
         iigLog('INFO', `Manual mode — ${total} placeholder(s)`);
         tags.forEach((tag, i) => {
@@ -692,7 +1350,6 @@ async function processMessageTags(messageId) {
         return;
     }
 
-    // ── Confirm mode ──
     if (settings.generationMode === 'confirm') {
         iigLog('INFO', `Confirm mode — ${total} placeholder(s)`);
         tags.forEach((tag, i) => {
@@ -702,7 +1359,6 @@ async function processMessageTags(messageId) {
 
             const placeholder = createConfirmPlaceholder(tagId, tag, i, total, async (shouldGen, editedPrompt, editedStyle) => {
                 if (!shouldGen) {
-                    // Skipped — show manual placeholder so user can still generate later
                     const manual = createManualPlaceholder(tagId, tag, i, total, async (ep, es) => {
                         processingMessages.add(messageId);
                         try { await generateAndReplace(tag, i, total, manual, message, ep || tag.prompt, es ?? tag.style); }
@@ -723,7 +1379,6 @@ async function processMessageTags(messageId) {
         return;
     }
 
-    // ── Auto mode ──
     processingMessages.add(messageId);
     iigLog('INFO', `Auto mode — ${total} image(s)`);
     toastr.info(`Тегов: ${total}. Генерация...`, 'Генерация картинок', { timeOut: 3000 });
@@ -740,8 +1395,6 @@ async function processMessageTags(messageId) {
                 target.replaceWith(loading);
             } else { mesText.appendChild(loading); }
 
-            // generateAndReplace expects to replace the element passed to it,
-            // but loading is already in DOM, so we pass it directly
             await generateAndReplace(tag, i, total, loading, message, tag.prompt, tag.style);
         }, settings.concurrency);
     } finally {
@@ -896,6 +1549,9 @@ function createSettingsUI() {
                     <hr>
                     <h4>Генерация</h4>
 
+                    <label class="checkbox_label"><input type="checkbox" id="iig_use_structured_prompt" ${settings.useStructuredPrompt ? 'checked' : ''}><span>Структурированный промпт (JSON)</span></label>
+                    <p class="hint">Конвертирует текстовый промпт в структурированный JSON перед отправкой в API.</p>
+
                     <div class="flex-row"><label for="iig_concurrency">Параллельно</label><input type="number" id="iig_concurrency" class="text_pole flex1" value="${settings.concurrency}" min="1" max="4"></div>
 
                     <div class="flex-row ${settings.apiType !== 'openai' ? 'iig-hidden' : ''}" id="iig_size_row">
@@ -1009,6 +1665,7 @@ function bindSettingsEvents() {
     bind('iig_refresh_models', 'click', async e => { const b = e.currentTarget; b.classList.add('loading'); try { const ms = await fetchModels(); const sel = document.getElementById('iig_model'); sel.innerHTML = '<option value="">--</option>'; for (const m of ms) { const o = document.createElement('option'); o.value = m; o.textContent = m; o.selected = m === s.model; sel.appendChild(o); } toastr.success(`${ms.length} моделей`); } catch { toastr.error('Ошибка'); } finally { b.classList.remove('loading'); } });
     bind('iig_size', 'change', e => { s.size = e.target.value; saveSettings(); });
     bind('iig_quality', 'change', e => { s.quality = e.target.value; saveSettings(); });
+    bind('iig_use_structured_prompt', 'change', e => { s.useStructuredPrompt = e.target.checked; saveSettings(); });
     bind('iig_concurrency', 'input', e => { s.concurrency = Math.max(1, Math.min(4, parseInt(e.target.value) || 1)); saveSettings(); });
     bind('iig_aspect_ratio', 'change', e => { s.aspectRatio = e.target.value; saveSettings(); });
     bind('iig_image_size', 'change', e => { s.imageSize = e.target.value; saveSettings(); });
@@ -1044,7 +1701,7 @@ function bindSettingsEvents() {
         createSettingsUI();
         addButtonsToExistingMessages();
         setTimeout(() => { initialLoadComplete = true; iigLog('INFO', 'Initial load complete'); }, 2000);
-        console.log('[IIG] v2.2 loaded');
+        console.log('[IIG] v2.3 loaded');
     });
 
     ctx.eventSource.on(ctx.event_types.CHAT_CHANGED, () => {
@@ -1059,5 +1716,5 @@ function bindSettingsEvents() {
         await onMessageReceived(id);
     });
 
-    console.log('[IIG] v2.2 initialized');
+    console.log('[IIG] v2.3 initialized');
 })();
